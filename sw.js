@@ -1,4 +1,4 @@
-const CACHE = 'loop-v2.2';
+const CACHE = 'loop-v3.0';
 const BASE = new URL('./', self.location.href);
 const FILES = ['./','./index.html','./style.css','./app.js','./complex-pack.js','./manifest.webmanifest','./icons/icon.svg'];
 self.addEventListener('install', event => {
