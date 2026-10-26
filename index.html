@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0d16">
+  <meta name="description" content="A personal spaced-repetition app for maths and physics.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="icon" type="image/png" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js"></script>
+  <script defer src="./app.js"></script>
+  <title>Loop — Study</title>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand"><div class="brand-symbol" aria-hidden="true">↻</div><div><strong>loop.</strong><span>PERSONAL STUDY</span></div></div>
+      <nav class="side-nav">
+        <button class="nav-item active" data-view="study"><span class="nav-ico">◈</span> Study <span id="nav-due" class="nav-count">0</span></button>
+        <button class="nav-item" data-view="library"><span class="nav-ico">▦</span> Library</button>
+        <button class="nav-item" data-view="create"><span class="nav-ico">＋</span> Create</button>
+        <button class="nav-item" data-view="transfer"><span class="nav-ico">⇄</span> Backup & transfer</button>
+      </nav>
+      <div class="sidebar-bottom"><span class="status-dot"></span> Local-first · No account required <small>v0.1</small></div>
+    </aside>
+
+    <div class="app-area">
+      <header class="topbar"><div class="topbar-left"><div class="small-mark">↻</div><span class="topbar-title" id="screen-name">Study</span></div><div class="topbar-right"><span class="local-pill"><span class="status-dot"></span> On this device</span><button class="icon-button" id="help-btn" aria-label="Help" title="Help">?</button></div></header>
+      <main id="view" tabindex="-1" aria-live="polite"></main>
+      <nav class="bottom-nav" aria-label="Main navigation">
+        <button class="tab active" data-view="study"><span>◈</span><small>Study</small></button>
+        <button class="tab" data-view="library"><span>▦</span><small>Library</small></button>
+        <button class="tab" data-view="create"><span>＋</span><small>Create</small></button>
+        <button class="tab" data-view="transfer"><span>⇄</span><small>Transfer</small></button>
+      </nav>
+    </div>
+  </div>
+  <dialog id="modal" class="dialog"><form method="dialog" id="modal-form" class="modal-body"></form></dialog>
+  <div id="toast" role="status" aria-live="polite" class="toast"></div>
+</body>
+</html>
