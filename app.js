@@ -1,4 +1,4 @@
-/* Loop v0.2 — scroll-native personal study feed. No analytics, accounts, or API keys. */
+/* Loop v0.3 — photo-carousel study feed. No analytics, accounts, or API keys. */
 (() => {
   'use strict';
   const STORAGE_KEY = 'loop.personal.v1';
@@ -38,28 +38,20 @@
     ]};
   }
 
-  // Install new built-in content once. Keep every existing local card and review.
+  // Install the built-in complex-numbers deck only once; never overwrite user cards.
   function installComplexPack(state) {
-    const pack = window.LOOP_COMPLEX_PACK;
-    if (!pack || !Array.isArray(pack.cards)) return false;
-    const installed = Array.isArray(state.installedPacks) ? state.installedPacks : [];
-    if (installed.includes(pack.key)) return false;
-    const t = dateNow();
-    if (!state.decks.some(d => d.id === pack.deck.id)) {
-      state.decks.push({...pack.deck, createdAt:t, updatedAt:t});
-    }
-    pack.cards.forEach(item => {
-      const id = pack.deck.id + '__' + item.key;
-      if (state.cards.some(c => c.id === id)) return;
-      state.cards.push({
-        id, deckId:pack.deck.id, type:item.type, front:item.front, back:item.back,
-        steps:Array.isArray(item.steps) ? item.steps : [],
-        createdAt:t, updatedAt:t, dueAt:null, intervalDays:0,
-        ease:2.5, repetitions:0, reviewedAt:null, lastRating:null, reviews:0
-      });
+    const pack=window.LOOP_COMPLEX_PACK;
+    if(!pack||!Array.isArray(pack.cards))return false;
+    const installed=Array.isArray(state.installedPacks)?state.installedPacks:[];
+    if(installed.includes(pack.key))return false;
+    const t=dateNow();
+    if(!state.decks.some(d=>d.id===pack.deck.id))state.decks.push({...pack.deck,createdAt:t,updatedAt:t});
+    pack.cards.forEach(item=>{
+      const id=pack.deck.id+'__'+item.key;
+      if(state.cards.some(c=>c.id===id))return;
+      state.cards.push({id,deckId:pack.deck.id,type:item.type,front:item.front,back:item.back,steps:Array.isArray(item.steps)?item.steps:[],createdAt:t,updatedAt:t,dueAt:null,intervalDays:0,ease:2.5,repetitions:0,reviewedAt:null,lastRating:null,reviews:0});
     });
-    state.installedPacks = [...installed,pack.key];
-    return true;
+    state.installedPacks=[...installed,pack.key];return true;
   }
 
   function load() {
@@ -68,10 +60,7 @@
       if (raw) {
         const candidate = JSON.parse(raw);
         if (candidate && candidate.version === 1 && Array.isArray(candidate.cards) && Array.isArray(candidate.decks)) {
-          if (installComplexPack(candidate)) {
-            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate)); }
-            catch (e) { console.warn('New cards could not be saved to this device', e); }
-          }
+          if(installComplexPack(candidate))try{localStorage.setItem(STORAGE_KEY,JSON.stringify(candidate));}catch(e){console.warn(e);}
           return candidate;
         }
       }
@@ -144,75 +133,111 @@
     };
   }
   function feedState(id) {
-    return session.states[id] ||= {revealed:false, stepsShown:0, rated:false, completedRating:null, scratch:''};
+    return session.states[id] ||= {revealed:false, stepsShown:0, rated:false, completedRating:null, scratch:'', page:0, showRating:false, showNotes:false};
   }
   function currentCard() { return session && data.cards.find(c => c.id === session.ids[session.index]); }
 
   function feedCardMarkup(card, index) {
     const state = feedState(card.id);
-    const isProblem = card.type === 'problem';
-    const steps = Array.isArray(card.steps) ? card.steps : [];
+    const exercise = card.type === 'problem';
     const deck = deckOf(card);
-    const shown = steps.slice(0, state.stepsShown);
-    const question = `<div class="feed-question formula-body">${pretty(card.front)}</div>`;
-    const stepContent = shown.length ? `<div class="feed-steps">${shown.map((t,i) => `<div class="feed-step"><span>STEP ${String(i+1).padStart(2,'0')}</span><div class="formula-body">${pretty(t)}</div></div>`).join('')}</div>` : '';
-    const answerContent = state.revealed ? `<div class="feed-answer" aria-label="Answer"><span class="feed-answer-label">${isProblem ? 'FINAL SOLUTION' : 'THE ANSWER'}</span><div class="formula-body">${pretty(card.back)}</div></div>` : '';
-    const actionLabel = isProblem && state.stepsShown < steps.length ? `Reveal step ${state.stepsShown+1} / ${steps.length}` : isProblem ? 'Reveal final solution' : 'Tap to reveal';
-    let actions;
-    if (state.rated) {
-      actions = `<div class="feed-saved">✓ Saved as <strong>${escape(state.completedRating)}</strong> <span>Scroll for the next one ↑</span></div>`;
-    } else if (state.revealed) {
-      actions = `<div class="feed-rating-caption">How well did you remember?</div><div class="feed-ratings"><button data-rating="again" class="feed-rate again">Again</button><button data-rating="hard" class="feed-rate hard">Hard</button><button data-rating="good" class="feed-rate good">Good</button><button data-rating="easy" class="feed-rate easy">Easy</button></div>`;
-    } else {
-      actions = `<button class="feed-reveal" data-reveal="${escape(card.id)}">${state.stepsShown ? 'Continue solution' : actionLabel} <span>↗</span></button>`;
-    }
-    return `<div class="feed-slide-inner">
-      <div class="feed-card-label"><span class="feed-subject">${escape(deck.subject)}</span><span class="feed-deck-name">${escape(deck.name)}</span><span class="feed-kind">${isProblem ? 'EXERCISE' : 'RECALL'}</span></div>
-      <div class="feed-main">
-        <div class="feed-prompt-heading">${isProblem ? 'TRY TO SOLVE' : 'THINK ABOUT IT'}</div>
-        <div class="feed-recall" data-tap-reveal="${escape(card.id)}" role="button" tabindex="0" aria-label="${state.revealed ? 'Answer visible' : 'Reveal answer or next solution step'}">${question}</div>
-        ${stepContent}${answerContent}
+    const steps = exercise && Array.isArray(card.steps) ? card.steps : [];
+    const pages = [
+      {type:'question', eyebrow:exercise ? 'THE PROBLEM' : 'YOUR TURN', text:card.front, hint:exercise ? 'Work it out before moving on.' : 'Think of the answer first.'},
+      ...steps.map((step,i)=>({type:'step', eyebrow:`STEP ${String(i+1).padStart(2,'0')}`, text:step, hint:'Use this clue, then try the next step.'})),
+      {type:'answer', eyebrow:exercise?'SOLUTION':'THE ANSWER', text:card.back, hint:'Did you get it right?'}
+    ];
+    state.page = Math.max(0,Math.min(state.page || 0,pages.length-1));
+    const pageHTML = pages.map((item,i) => `
+      <section class="photo-page photo-${item.type}" data-photo-page="${i}" aria-label="Slide ${i+1} of ${pages.length}">
+        <div class="photo-poster-decor" aria-hidden="true"><span class="poster-orbit"></span><span class="poster-cross">+</span><span class="poster-sigil">${exercise?'∫':'∑'}</span></div>
+        <div class="photo-poster-content">
+          <p class="photo-eyebrow"><span class="eyebrow-line"></span>${escape(item.eyebrow)}</p>
+          <div class="photo-big-text formula-body">${pretty(item.text)}</div>
+          <p class="photo-poster-hint">${escape(item.hint)}</p>
+        </div>
+        <div class="photo-poster-bottom" aria-hidden="true"><span>LOOP / ${String(index+1).padStart(2,'0')}</span><span>${String(i+1).padStart(2,'0')} — ${String(pages.length).padStart(2,'0')}</span></div>
+      </section>`).join('');
+    return `<div class="photo-post">
+      <div class="photo-carousel" data-carousel aria-label="Swipe horizontally for hints and answer">${pageHTML}</div>
+      <div class="photo-slide-count" data-slide-count>1 / ${pages.length}</div>
+      <div class="photo-rail">
+        ${exercise ? `<button class="rail-action" type="button" data-notes-toggle aria-label="Open scratchpad"><span class="rail-circle rail-note">✎</span><small>Notes</small></button>` : ''}
+        <button class="rail-action" type="button" data-next-page aria-label="Next slideshow page"><span class="rail-circle rail-next">›</span><small>Next</small></button>
+        <button class="rail-action" type="button" data-rating-toggle aria-label="Rate your recall"><span class="rail-circle rail-rate">${state.rated?'✓':'◈'}</span><small>${state.rated?'Saved':'Rate'}</small></button>
       </div>
-      <div class="feed-controls">
-        ${isProblem && !state.revealed && !state.rated ? `<details class="feed-notes"><summary>✎ Scratchpad (optional)</summary><textarea data-scratch="${escape(card.id)}" placeholder="Your approach / next step...">${escape(state.scratch)}</textarea></details>` : ''}
-        ${actions}
-        <div class="feed-swipe-cue"><span>↑</span> Swipe up for the next card <span class="feed-index">${String(index+1).padStart(2,'0')} / ${String(session.ids.length).padStart(2,'0')}</span></div>
+      <div class="photo-post-meta">
+        <div class="photo-handle">@loop.study <span class="photo-separator">·</span> ${escape(deck.subject)}</div>
+        <div class="photo-caption-title">${escape(deck.name)} <span class="photo-type">${exercise?'EXERCISE':'CONCEPT'}</span></div>
+        <div class="photo-direction">Swipe <b>←</b> for the solution <span class="photo-separator">·</span> Swipe <b>↑</b> for next</div>
+        <div class="photo-dots" data-page-dots aria-label="Slideshow position">${pages.map((x,i)=>`<span class="${i===state.page?'active':''}"></span>`).join('')}</div>
       </div>
+      <div class="photo-sheet photo-rating-panel" data-rating-panel hidden>
+        ${state.rated ? `<div class="sheet-title">✓ Marked ${escape(state.completedRating)}</div><p>Saved to your review schedule.</p>` : `<div class="sheet-title">How well did you remember?</div><div class="photo-rating-options"><button data-rating="again" class="again">Again</button><button data-rating="hard" class="hard">Hard</button><button data-rating="good" class="good">Good</button><button data-rating="easy" class="easy">Easy</button></div>`}
+        <button class="sheet-close" data-sheet-close type="button">Close</button>
+      </div>
+      ${exercise ? `<div class="photo-sheet photo-notes-panel" data-notes-panel hidden><div class="sheet-title">Your working</div><textarea data-scratch="${escape(card.id)}" placeholder="Write your approach or a clue to yourself...">${escape(state.scratch)}</textarea><button class="sheet-close" data-sheet-close type="button">Done</button></div>`:''}
     </div>`;
   }
 
+  function updatePhotoChrome(slide,cardId) {
+    const state=feedState(cardId);
+    const pages=$$('[data-photo-page]',slide);
+    const page=Math.min(pages.length-1, Math.max(0,state.page||0));
+    const count=$('[data-slide-count]',slide);
+    if(count) count.textContent=`${page+1} / ${pages.length}`;
+    $$('[data-page-dots] span',slide).forEach((dot,i)=>dot.classList.toggle('active',i===page));
+    const last = page === pages.length-1;
+    const next = $('[data-next-page]',slide);
+    if(next) next.hidden = last;
+    const rateButton=$('[data-rating-toggle]',slide);
+    if(rateButton) rateButton.hidden = !last;
+    const sheet=$('[data-rating-panel]',slide);
+    if(sheet) sheet.hidden = !(last && state.showRating);
+    const noteSheet=$('[data-notes-panel]',slide);
+    if(noteSheet) noteSheet.hidden = !state.showNotes;
+    if(last) state.revealed=true;
+    if(page>0) state.stepsShown=Math.max(state.stepsShown,page);
+  }
   function bindFeedSlide(slide) {
-    const cardId = slide.dataset.cardId;
-    const state = feedState(cardId);
-    const reveal = () => {
-      if (state.rated || state.revealed) return;
-      const card = data.cards.find(c => c.id === cardId);
-      if (!card) return;
-      const steps = Array.isArray(card.steps) ? card.steps : [];
-      if (card.type === 'problem' && state.stepsShown < steps.length) state.stepsShown++;
-      else state.revealed = true;
-      updateFeedSlide(cardId);
+    const id=slide.dataset.cardId;
+    const state=feedState(id);
+    const carousel=$('[data-carousel]',slide);
+    if(!carousel) return;
+    const pages=$$('[data-photo-page]',carousel);
+    const updatePage=()=>{
+      const newPage=Math.min(pages.length-1,Math.max(0,Math.round(carousel.scrollLeft/(carousel.clientWidth||1))));
+      if(state.page!==newPage){state.page=newPage;state.showRating=false;state.showNotes=false;}
+      updatePhotoChrome(slide,id);
     };
-    $$('[data-reveal]', slide).forEach(btn => btn.onclick = reveal);
-    const tap = $('[data-tap-reveal]', slide);
-    if(tap) {
-      tap.onclick = reveal;
-      tap.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); reveal(); } };
-    }
-    $$('[data-rating]', slide).forEach(btn => btn.onclick = () => rate(btn.dataset.rating, cardId));
-    const notes = $('[data-scratch]', slide);
-    if(notes) notes.oninput = e => {state.scratch = e.target.value;};
+    let ticking=false;
+    carousel.addEventListener('scroll',()=>{
+      if(ticking)return;
+      ticking=true;
+      requestAnimationFrame(()=>{updatePage();ticking=false;});
+    },{passive:true});
+    const next=$('[data-next-page]',slide);
+    if(next)next.onclick=()=>carousel.scrollTo({left:(state.page+1)*carousel.clientWidth,behavior:'smooth'});
+    const toggleRating=$('[data-rating-toggle]',slide);
+    if(toggleRating)toggleRating.onclick=()=>{state.showNotes=false;state.showRating=!state.showRating;updatePhotoChrome(slide,id);};
+    const toggleNotes=$('[data-notes-toggle]',slide);
+    if(toggleNotes)toggleNotes.onclick=()=>{state.showRating=false;state.showNotes=!state.showNotes;updatePhotoChrome(slide,id);};
+    $$('[data-sheet-close]',slide).forEach(btn=>btn.onclick=()=>{state.showNotes=false;state.showRating=false;updatePhotoChrome(slide,id);});
+    $$('[data-rating]',slide).forEach(btn=>btn.onclick=()=>rate(btn.dataset.rating,id));
+    const scratch=$('[data-scratch]',slide);
+    if(scratch)scratch.oninput=e=>{state.scratch=e.target.value;};
+    carousel.scrollLeft=state.page*carousel.clientWidth;
+    updatePhotoChrome(slide,id);
   }
   function updateFeedSlide(id) {
-    const slide = $$('.feed-slide', view).find(el => el.dataset.cardId === id);
-    const card = data.cards.find(c => c.id === id);
-    if (!slide || !card || !session) return;
-    const notesWereOpen = !!$('details.feed-notes[open]', slide);
-    slide.innerHTML = feedCardMarkup(card, session.ids.indexOf(id));
-    if (notesWereOpen && $('details.feed-notes', slide)) $('details.feed-notes', slide).open = true;
-    slide.classList.toggle('feed-answered', feedState(id).revealed);
-    slide.classList.toggle('feed-reviewed', feedState(id).rated);
+    const slide = $$('.feed-slide', view).find(el=>el.dataset.cardId === id);
+    const card=data.cards.find(c=>c.id===id);
+    if(!slide||!card||!session)return;
+    const state=feedState(id);
+    slide.innerHTML=feedCardMarkup(card,session.ids.indexOf(id));
     bindFeedSlide(slide);
+    const carousel=$('[data-carousel]',slide);
+    if(carousel)carousel.scrollLeft=state.page*carousel.clientWidth;
     renderMath(slide);
     updateFeedChrome();
   }
@@ -235,45 +260,55 @@
   }
   function renderStudy() {
     setNav('study');
-    if (!session) newSession();
-    const hasCards = session.ids.length > 0;
-    const allAvailable = data.cards.some(c=>filterDeck==='all'||c.deckId===filterDeck);
-    view.innerHTML = `<div class="feed-root">
+    if(!session)newSession();
+    const hasCards=session.ids.length>0;
+    const allAvailable=data.cards.some(c=>filterDeck==='all'||c.deckId===filterDeck);
+    view.innerHTML=`<div class="feed-root">
       <div class="feed-top-overlay">
-        <div class="feed-header-row"><div class="feed-wordmark">loop<span>.</span></div><div class="feed-mode-switch"><button data-feed-mode="due" class="${feedMode==='due'?'active':''}">For you</button><button data-feed-mode="all" class="${feedMode==='all'?'active':''}">Explore</button></div><span class="feed-counter" id="feed-position">1 / ${session.ids.length}</span></div>
-        <div class="feed-filter-row"><select id="study-deck" aria-label="Choose deck">${deckOptions(filterDeck,true)}</select><span class="feed-review-count" id="feed-rated-count">0 reviewed</span></div>
-        <div class="feed-progress-line"><div id="feed-progress-fill"></div></div>
+        <div class="feed-header-row">
+          <button class="feed-wordmark" id="feed-menu-button" aria-label="Open studio menu" aria-expanded="false">loop<span>.</span></button>
+          <div class="feed-mode-switch"><button data-feed-mode="due" class="${feedMode==='due'?'active':''}">For You</button><button data-feed-mode="all" class="${feedMode==='all'?'active':''}">Explore</button></div>
+          <button id="feed-deck-button" class="feed-header-icon" aria-label="Filter decks" aria-expanded="false">⌕</button>
+        </div>
+        <div class="feed-popup" id="feed-menu-popup" hidden>
+          <b>Your studio</b><button data-studio="library">Library</button><button data-studio="create">Create cards</button><button data-studio="transfer">Backup & transfer</button>
+        </div>
+        <div class="feed-popup feed-deck-popup" id="feed-deck-popup" hidden><b>Choose your feed</b><select id="study-deck" aria-label="Choose deck">${deckOptions(filterDeck,true)}</select><p>Filter the posts by a subject or deck.</p></div>
       </div>
       <div class="feed-scroller" id="feed-scroller" aria-label="Vertical study feed" tabindex="0">
-        ${hasCards ? session.ids.map((id,i) => { const card = data.cards.find(c=>c.id===id);return card ? `<article class="feed-slide feed-${card.type==='problem'?'problem':'concept'}" data-card-id="${escape(card.id)}" aria-label="Study card ${i+1} of ${session.ids.length}">${feedCardMarkup(card,i)}</article>` : ''; }).join('') : `<section class="feed-slide feed-finish"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>${allAvailable ? 'All caught up.' : 'Make something to study.'}</h1><p>${allAvailable ? 'Nothing due right now. Explore your saved cards or add a new one.' : 'Create a few math or physics cards, then they will appear here.'}</p><button class="feed-reveal" id="empty-action">${allAvailable ? 'Explore all cards' : 'Create a card'} ↗</button></div></section>`}
-        ${hasCards ? `<section class="feed-slide feed-finish" id="feed-end"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>End of the feed.</h1><p>Skipped cards remain due. Review the ones you want to remember; scrolling alone never counts as an answer.</p><div class="feed-end-actions"><button id="feed-restart">↺ Start again</button><button id="feed-browse">Explore cards →</button></div></div></section>` : ''}
+        ${hasCards?session.ids.map((id,i)=>{const card=data.cards.find(c=>c.id===id);return card?`<article class="feed-slide" data-card-id="${escape(card.id)}" aria-label="Post ${i+1} of ${session.ids.length}">${feedCardMarkup(card,i)}</article>`:'';}).join(''):`<section class="feed-slide feed-finish"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>${allAvailable?'All caught up.':'No posts yet.'}</h1><p>${allAvailable?'Nothing due right now. Explore everything in your library.':'Add a card from the studio menu to start your feed.'}</p><button class="feed-reveal" id="empty-action">${allAvailable?'Explore posts':'Create a card'}</button></div></section>`}
+        ${hasCards?`<section class="feed-slide feed-finish"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>You’re all caught up.</h1><p>Skipped questions stay due. Scrolling doesn’t count as remembering.</p><div class="feed-end-actions"><button id="feed-restart">Replay feed</button><button id="feed-browse">Explore all</button></div></div></section>`:''}
       </div>
     </div>`;
-    const deckSelect = $('#study-deck');
+    const popup=(buttonId,popupId)=>{
+      const button=$('#'+buttonId), panel=$('#'+popupId);
+      button.onclick=()=>{const wasHidden=panel.hidden;$$('.feed-popup',view).forEach(el=>el.hidden=true);panel.hidden=!wasHidden;button.setAttribute('aria-expanded',String(wasHidden));};
+    };
+    popup('feed-menu-button','feed-menu-popup');
+    popup('feed-deck-button','feed-deck-popup');
+    $$('[data-studio]',view).forEach(btn=>btn.onclick=()=>go(btn.dataset.studio));
+    const deckSelect=$('#study-deck');
     deckSelect.value=filterDeck;
-    deckSelect.onchange=e=>{filterDeck=e.target.value;newSession();renderStudy();};
-    $$('[data-feed-mode]', view).forEach(btn=>btn.onclick=()=>{feedMode=btn.dataset.feedMode;newSession();renderStudy();});
-    if (!hasCards) {
-      $('#empty-action').onclick=()=>{if(allAvailable){feedMode='all';newSession();renderStudy();}else go('create');};
-    } else {
-      $$('.feed-slide[data-card-id]',view).forEach(slide=>bindFeedSlide(slide));
+    deckSelect.onchange=e=>{filterDeck=e.target.value;session=null;newSession();renderStudy();};
+    $$('[data-feed-mode]',view).forEach(btn=>btn.onclick=()=>{feedMode=btn.dataset.feedMode;newSession();renderStudy();});
+    if(!hasCards){$('#empty-action').onclick=()=>{if(allAvailable){feedMode='all';newSession();renderStudy();}else go('create');};}
+    else {
+      $$('.feed-slide[data-card-id]',view).forEach(bindFeedSlide);
       $('#feed-restart').onclick=()=>{session.index=0;scrollFeed(0);};
       $('#feed-browse').onclick=()=>{feedMode='all';newSession();renderStudy();};
     }
     const scroller=$('#feed-scroller');
-    let scrollTick = false;
+    let scrollTick=false;
     scroller.addEventListener('scroll',()=>{
-      if(scrollTick) return;
+      if(scrollTick)return;
       scrollTick=true;
       requestAnimationFrame(()=>{
-        const panels = $$('.feed-slide',scroller);
-        if(panels.length) session.index = Math.min(session.ids.length,Math.max(0,Math.round(scroller.scrollTop / (panels[0].offsetHeight || scroller.clientHeight))));
-        updateFeedChrome();
-        scrollTick=false;
+        const posts=$$('.feed-slide',scroller);
+        if(posts.length)session.index=Math.min(session.ids.length,Math.max(0,Math.round(scroller.scrollTop/(posts[0].offsetHeight||scroller.clientHeight))));
+        updateFeedChrome();scrollTick=false;
       });
     },{passive:true});
-    updateFeedChrome();
-    renderMath();
+    updateFeedChrome();renderMath();
   }
   function rate(rating, cardId = currentCard()?.id) {
     if (!session || !cardId) return;
@@ -459,5 +494,7 @@
   if('serviceWorker' in navigator && ['http:','https:'].includes(location.protocol))navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('Offline caching unavailable',err));
   // KaTeX is optional and loaded from a CDN. Retry typesetting once it's ready.
   window.addEventListener('load',()=>renderMath());
+  const returnFeed = $('#back-to-feed');
+  if(returnFeed) returnFeed.onclick=()=>go('study');
   go('study');
 })();
