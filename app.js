@@ -1,4 +1,4 @@
-/* Loop v0.1 — personal, local-first study prototype. No analytics, accounts, or API keys. */
+/* Loop v0.2 — scroll-native personal study feed. No analytics, accounts, or API keys. */
 (() => {
   'use strict';
   const STORAGE_KEY = 'loop.personal.v1';
@@ -16,7 +16,7 @@
   let filterDeck = 'all';
   let libraryDeck = 'all';
   let session = null;
-  let scratchText = '';
+  let feedMode = 'due'; // 'due' prioritizes spaced repetition; 'all' is a browsable library feed.
   let data = load();
 
   function demo() {
@@ -85,6 +85,7 @@
   }
   function setNav(viewName) {
     activeView = viewName;
+    document.body.classList.toggle('feed-mode', viewName === 'study');
     $$('[data-view]').forEach(el=>{
       el.classList.toggle('active', el.dataset.view === activeView);
       if (el.dataset.view === activeView) el.setAttribute('aria-current','page');
@@ -103,63 +104,151 @@
     scrollTo({top:0,behavior:'instant'});
   }
 
+  // Every due card lives in the DOM at once. Native scrolling (not fake touch
+  // gestures or a Next button) drives navigation; rating is optional to advance.
   function newSession() {
-    session = {ids:dueCards(filterDeck).map(c=>c.id), index:0, revealed:false, stepsShown:0, rated:false, completedRating:null};
-    scratchText = '';
+    session = {
+      ids: (feedMode === 'all' ? data.cards.filter(c => filterDeck === 'all' || c.deckId === filterDeck) : dueCards(filterDeck)).map(c => c.id),
+      index: 0, states: {}
+    };
   }
-  function currentCard() { return session && data.cards.find(c=>c.id===session.ids[session.index]); }
+  function feedState(id) {
+    return session.states[id] ||= {revealed:false, stepsShown:0, rated:false, completedRating:null, scratch:''};
+  }
+  function currentCard() { return session && data.cards.find(c => c.id === session.ids[session.index]); }
+
+  function feedCardMarkup(card, index) {
+    const state = feedState(card.id);
+    const isProblem = card.type === 'problem';
+    const steps = Array.isArray(card.steps) ? card.steps : [];
+    const deck = deckOf(card);
+    const shown = steps.slice(0, state.stepsShown);
+    const question = `<div class="feed-question formula-body">${pretty(card.front)}</div>`;
+    const stepContent = shown.length ? `<div class="feed-steps">${shown.map((t,i) => `<div class="feed-step"><span>STEP ${String(i+1).padStart(2,'0')}</span><div class="formula-body">${pretty(t)}</div></div>`).join('')}</div>` : '';
+    const answerContent = state.revealed ? `<div class="feed-answer" aria-label="Answer"><span class="feed-answer-label">${isProblem ? 'FINAL SOLUTION' : 'THE ANSWER'}</span><div class="formula-body">${pretty(card.back)}</div></div>` : '';
+    const actionLabel = isProblem && state.stepsShown < steps.length ? `Reveal step ${state.stepsShown+1} / ${steps.length}` : isProblem ? 'Reveal final solution' : 'Tap to reveal';
+    let actions;
+    if (state.rated) {
+      actions = `<div class="feed-saved">✓ Saved as <strong>${escape(state.completedRating)}</strong> <span>Scroll for the next one ↑</span></div>`;
+    } else if (state.revealed) {
+      actions = `<div class="feed-rating-caption">How well did you remember?</div><div class="feed-ratings"><button data-rating="again" class="feed-rate again">Again</button><button data-rating="hard" class="feed-rate hard">Hard</button><button data-rating="good" class="feed-rate good">Good</button><button data-rating="easy" class="feed-rate easy">Easy</button></div>`;
+    } else {
+      actions = `<button class="feed-reveal" data-reveal="${escape(card.id)}">${state.stepsShown ? 'Continue solution' : actionLabel} <span>↗</span></button>`;
+    }
+    return `<div class="feed-slide-inner">
+      <div class="feed-card-label"><span class="feed-subject">${escape(deck.subject)}</span><span class="feed-deck-name">${escape(deck.name)}</span><span class="feed-kind">${isProblem ? 'EXERCISE' : 'RECALL'}</span></div>
+      <div class="feed-main">
+        <div class="feed-prompt-heading">${isProblem ? 'TRY TO SOLVE' : 'THINK ABOUT IT'}</div>
+        <div class="feed-recall" data-tap-reveal="${escape(card.id)}" role="button" tabindex="0" aria-label="${state.revealed ? 'Answer visible' : 'Reveal answer or next solution step'}">${question}</div>
+        ${stepContent}${answerContent}
+      </div>
+      <div class="feed-controls">
+        ${isProblem && !state.revealed && !state.rated ? `<details class="feed-notes"><summary>✎ Scratchpad (optional)</summary><textarea data-scratch="${escape(card.id)}" placeholder="Your approach / next step...">${escape(state.scratch)}</textarea></details>` : ''}
+        ${actions}
+        <div class="feed-swipe-cue"><span>↑</span> Swipe up for the next card <span class="feed-index">${String(index+1).padStart(2,'0')} / ${String(session.ids.length).padStart(2,'0')}</span></div>
+      </div>
+    </div>`;
+  }
+
+  function bindFeedSlide(slide) {
+    const cardId = slide.dataset.cardId;
+    const state = feedState(cardId);
+    const reveal = () => {
+      if (state.rated || state.revealed) return;
+      const card = data.cards.find(c => c.id === cardId);
+      if (!card) return;
+      const steps = Array.isArray(card.steps) ? card.steps : [];
+      if (card.type === 'problem' && state.stepsShown < steps.length) state.stepsShown++;
+      else state.revealed = true;
+      updateFeedSlide(cardId);
+    };
+    $$('[data-reveal]', slide).forEach(btn => btn.onclick = reveal);
+    const tap = $('[data-tap-reveal]', slide);
+    if(tap) {
+      tap.onclick = reveal;
+      tap.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); reveal(); } };
+    }
+    $$('[data-rating]', slide).forEach(btn => btn.onclick = () => rate(btn.dataset.rating, cardId));
+    const notes = $('[data-scratch]', slide);
+    if(notes) notes.oninput = e => {state.scratch = e.target.value;};
+  }
+  function updateFeedSlide(id) {
+    const slide = $$('.feed-slide', view).find(el => el.dataset.cardId === id);
+    const card = data.cards.find(c => c.id === id);
+    if (!slide || !card || !session) return;
+    const notesWereOpen = !!$('details.feed-notes[open]', slide);
+    slide.innerHTML = feedCardMarkup(card, session.ids.indexOf(id));
+    if (notesWereOpen && $('details.feed-notes', slide)) $('details.feed-notes', slide).open = true;
+    slide.classList.toggle('feed-answered', feedState(id).revealed);
+    slide.classList.toggle('feed-reviewed', feedState(id).rated);
+    bindFeedSlide(slide);
+    renderMath(slide);
+    updateFeedChrome();
+  }
+  function updateFeedChrome() {
+    if (!session || activeView !== 'study') return;
+    const rated = session.ids.filter(id => feedState(id).rated).length;
+    const total = session.ids.length;
+    const pos = $('#feed-position');
+    if(pos) pos.textContent = `${Math.min(session.index + 1, total)} / ${total}`;
+    const amount = $('#feed-rated-count');
+    if(amount) amount.textContent = `${rated} reviewed`;
+    const fill = $('#feed-progress-fill');
+    if(fill) fill.style.width = `${total ? 100 * rated / total : 0}%`;
+    $('#nav-due').textContent = countDue();
+  }
+  function scrollFeed(index, behavior = 'smooth') {
+    if(!session) return;
+    const target = $$('.feed-slide',view)[Math.max(0, Math.min(index, session.ids.length))];
+    if(target) target.scrollIntoView({block:'start', behavior});
+  }
   function renderStudy() {
     setNav('study');
     if (!session) newSession();
-    const s = stats(), card = currentCard();
-    let header = `<div class="section-head"><div><div class="eyebrow">DAILY PRACTICE</div><h1 class="page-title">Your study feed<span style="color:var(--primary)">.</span></h1><p class="lead muted" style="margin:0">A little every day beats cramming.</p></div></div>
-    <div class="stats"><div class="stat"><div class="stat-number">${s.due}</div><div class="stat-caption">Due now</div></div><div class="stat"><div class="stat-number">${s.total}</div><div class="stat-caption">Total cards</div></div><div class="stat"><div class="stat-number">${s.learned}</div><div class="stat-caption">Reviewed before</div></div></div>`;
-    if (!data.cards.length) {
-      view.innerHTML = header+`<div class="finished"><div class="hero-icon">✦</div><h2>Start with your first card</h2><p class="empty-note">Create a card or turn structured notes into a few cards.</p><button class="btn primary" id="start-create">Create a card →</button></div>`;
-      $('#start-create').onclick = ()=>go('create'); return;
-    }
-    const filter = `<div class="review-head"><div class="review-label"><span class="chip">${card?escape(deckOf(card).subject):'ALL CAUGHT UP'}</span> ${card?'Review in progress':'No cards due'}</div><select id="study-deck" aria-label="Deck filter" style="width:auto;max-width:54%;font-size:12px;padding:10px">${deckOptions(filterDeck,true)}</select></div>`;
-    if (!card) {
-      view.innerHTML = header+`<div class="study-layout">${filter}<div class="finished"><div class="hero-icon">✦</div><h2>You're done for now.</h2><p class="empty-note">All due cards have been reviewed. Your next reviews will unlock automatically when they're due.</p><div class="btn-row" style="justify-content:center"><button class="btn primary" id="finish-create">+ Add cards</button><button class="btn" id="finish-refresh">Check again</button></div></div></div>`;
-      $('#finish-create').onclick=()=>go('create'); $('#finish-refresh').onclick=()=>{newSession();renderStudy();};
-      $('#study-deck').value=filterDeck; $('#study-deck').onchange=e=>{filterDeck=e.target.value;newSession();renderStudy();}; return;
-    }
-    const current = session.index+1, total=session.ids.length;
-    const steps = Array.isArray(card.steps)?card.steps:[];
-    const isProblem = card.type==='problem';
-    const visibleSteps = steps.slice(0,session.stepsShown);
-    const answerHTML = session.revealed ? `<div class="answer-panel"><h3>${isProblem?'Solution':'Answer'}</h3><div class="formula-body">${pretty(card.back)}</div></div>` : '';
-    const stepsHTML = visibleSteps.length ? `<div class="answer-panel"><h3>Your next steps</h3>${visibleSteps.map((t,i)=>`<div class="step-block"><div class="step-label">STEP ${i+1}</div><div class="formula-body">${pretty(t)}</div></div>`).join('')}</div>`:'';
-    let actions = '';
-    if (!session.revealed) {
-      if (isProblem && steps.length > session.stepsShown) actions = `<button class="btn primary full" id="reveal-btn">Reveal step ${session.stepsShown+1} of ${steps.length}</button>`;
-      else actions = `<button class="btn primary full" id="reveal-btn">${isProblem?'Show final solution':'Reveal answer'}</button>`;
-    } else if (!session.rated) {
-      actions = `<div class="rating-title">How well did you recall it?</div><div class="ratings"><button class="rating again" data-rating="again">Again<span>Forgot it</span></button><button class="rating hard" data-rating="hard">Hard<span>Struggled</span></button><button class="rating good" data-rating="good">Good<span>Remembered</span></button><button class="rating easy" data-rating="easy">Easy<span>Instant</span></button></div>`;
+    const hasCards = session.ids.length > 0;
+    const allAvailable = data.cards.some(c=>filterDeck==='all'||c.deckId===filterDeck);
+    view.innerHTML = `<div class="feed-root">
+      <div class="feed-top-overlay">
+        <div class="feed-header-row"><div class="feed-wordmark">loop<span>.</span></div><div class="feed-mode-switch"><button data-feed-mode="due" class="${feedMode==='due'?'active':''}">For you</button><button data-feed-mode="all" class="${feedMode==='all'?'active':''}">Explore</button></div><span class="feed-counter" id="feed-position">1 / ${session.ids.length}</span></div>
+        <div class="feed-filter-row"><select id="study-deck" aria-label="Choose deck">${deckOptions(filterDeck,true)}</select><span class="feed-review-count" id="feed-rated-count">0 reviewed</span></div>
+        <div class="feed-progress-line"><div id="feed-progress-fill"></div></div>
+      </div>
+      <div class="feed-scroller" id="feed-scroller" aria-label="Vertical study feed" tabindex="0">
+        ${hasCards ? session.ids.map((id,i) => { const card = data.cards.find(c=>c.id===id);return card ? `<article class="feed-slide feed-${card.type==='problem'?'problem':'concept'}" data-card-id="${escape(card.id)}" aria-label="Study card ${i+1} of ${session.ids.length}">${feedCardMarkup(card,i)}</article>` : ''; }).join('') : `<section class="feed-slide feed-finish"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>${allAvailable ? 'All caught up.' : 'Make something to study.'}</h1><p>${allAvailable ? 'Nothing due right now. Explore your saved cards or add a new one.' : 'Create a few math or physics cards, then they will appear here.'}</p><button class="feed-reveal" id="empty-action">${allAvailable ? 'Explore all cards' : 'Create a card'} ↗</button></div></section>`}
+        ${hasCards ? `<section class="feed-slide feed-finish" id="feed-end"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>End of the feed.</h1><p>Skipped cards remain due. Review the ones you want to remember; scrolling alone never counts as an answer.</p><div class="feed-end-actions"><button id="feed-restart">↺ Start again</button><button id="feed-browse">Explore cards →</button></div></div></section>` : ''}
+      </div>
+    </div>`;
+    const deckSelect = $('#study-deck');
+    deckSelect.value=filterDeck;
+    deckSelect.onchange=e=>{filterDeck=e.target.value;newSession();renderStudy();};
+    $$('[data-feed-mode]', view).forEach(btn=>btn.onclick=()=>{feedMode=btn.dataset.feedMode;newSession();renderStudy();});
+    if (!hasCards) {
+      $('#empty-action').onclick=()=>{if(allAvailable){feedMode='all';newSession();renderStudy();}else go('create');};
     } else {
-      actions = `<button class="btn primary full" id="next-btn">Next card ↑</button><div class="action-note">Saved! Your review will appear again when it's due.</div>`;
+      $$('.feed-slide[data-card-id]',view).forEach(slide=>bindFeedSlide(slide));
+      $('#feed-restart').onclick=()=>{session.index=0;scrollFeed(0);};
+      $('#feed-browse').onclick=()=>{feedMode='all';newSession();renderStudy();};
     }
-    const scratch = isProblem && !session.revealed ? `<textarea class="scratch" id="scratch" aria-label="Scratchpad" placeholder="Optional: write your next step or idea here...">${escape(scratchText)}</textarea>`:'';
-    view.innerHTML = `${header}<div class="study-layout">${filter}<div class="progress-track"><div class="progress-fill" style="width:${Math.max(2,100*(current-1)/total)}%"></div></div><div class="study-card" id="study-card"><div class="row"><div class="card-tags"><span>${escape(deckOf(card).name)}</span><span class="type-tag">${isProblem?'EXERCISE':'RECALL'}</span></div><span class="mini">${current} / ${total}</span></div><div class="study-prompt"><span class="small-head">${isProblem?'SOLVE THE PROBLEM':'QUESTION'}</span><div class="question formula-body">${pretty(card.front)}</div></div>${scratch}${stepsHTML}${answerHTML}${actions}</div><div class="card-footer"><span class="footer-instruction">↑ Swipe up after rating · Space to reveal · 1–4 to rate</span></div></div>`;
-    $('#study-deck').value=filterDeck;
-    $('#study-deck').onchange=e=>{filterDeck=e.target.value;newSession();renderStudy();};
-    const scratchEl=$('#scratch'); if(scratchEl) scratchEl.oninput=e=>{scratchText=e.target.value;};
-    const reveal=$('#reveal-btn'); if(reveal) reveal.onclick=()=>{
-      if (isProblem && session.stepsShown<steps.length) session.stepsShown++;
-      else session.revealed=true;
-      renderStudy();
-    };
-    $$('[data-rating]',view).forEach(btn=>btn.onclick=()=>rate(btn.dataset.rating));
-    if ($('#next-btn')) $('#next-btn').onclick=next;
-    const surface=$('#study-card');
-    let startY=null;
-    surface.addEventListener('touchstart',e=>{if(e.target.closest('textarea, button, select, input'))return;startY=e.changedTouches[0].clientY;},{passive:true});
-    surface.addEventListener('touchend',e=>{if(startY===null)return;const delta=e.changedTouches[0].clientY-startY;startY=null;if(delta< -72)next();},{passive:true});
+    const scroller=$('#feed-scroller');
+    let scrollTick = false;
+    scroller.addEventListener('scroll',()=>{
+      if(scrollTick) return;
+      scrollTick=true;
+      requestAnimationFrame(()=>{
+        const panels = $$('.feed-slide',scroller);
+        if(panels.length) session.index = Math.min(session.ids.length,Math.max(0,Math.round(scroller.scrollTop / (panels[0].offsetHeight || scroller.clientHeight))));
+        updateFeedChrome();
+        scrollTick=false;
+      });
+    },{passive:true});
+    updateFeedChrome();
     renderMath();
   }
-  function rate(rating) {
-    if (!session || !session.revealed || session.rated) return;
-    const card=currentCard();if(!card)return;
+  function rate(rating, cardId = currentCard()?.id) {
+    if (!session || !cardId) return;
+    const state = feedState(cardId);
+    if (!state.revealed || state.rated) return;
+    const card = data.cards.find(c=>c.id===cardId);if(!card)return;
     const i=Number(card.intervalDays)||0, reps=Number(card.repetitions)||0, ease=Number(card.ease)||2.5;
     const t=dateNow();let newInterval, newEase=ease, newReps=reps;
     if(rating==='again'){newInterval=10/(24*60);newEase=Math.max(1.3,ease-.2);newReps=0;}
@@ -169,14 +258,10 @@
     else return;
     card.intervalDays=newInterval;card.ease=newEase;card.repetitions=newReps;
     card.dueAt=t+newInterval*DAY;card.reviewedAt=t;card.lastRating=rating;card.reviews=(Number(card.reviews)||0)+1;
-    save();session.rated=true;session.completedRating=rating;renderStudy();
+    save();state.rated=true;state.completedRating=rating;updateFeedSlide(cardId);
   }
-  function next() {
-    if(!session)return;
-    if(!session.rated){toast('Reveal the answer and rate your recall first.');return;}
-    session.index++;session.revealed=false;session.stepsShown=0;session.rated=false;session.completedRating=null;scratchText='';
-    renderStudy();
-  }
+  function next() { scrollFeed((session?.index || 0) + 1); }
+  function previous() { scrollFeed((session?.index || 0) - 1); }
 
   function renderLibrary() {
     setNav('library');
@@ -325,7 +410,7 @@
     save();return {decks:addedDecks,cards:addedCards};
   }
   function help() {
-    const form=$('#modal-form');form.innerHTML=`<div class="row"><h2>How Loop works</h2><button type="button" class="icon-button" id="close-modal">×</button></div><p class="small-note"><strong>Study:</strong> recall the answer, reveal it, rate yourself, then swipe up or tap Next.</p><p class="small-note"><strong>Exercises:</strong> try solving on paper, optionally write in the scratchpad, reveal steps one at a time, then see the final answer.</p><p class="small-note"><strong>Creating cards:</strong> write a question and answer. Enter formulas between dollar signs, such as <code>$F=ma$</code>.</p><p class="small-note"><strong>Import/Export:</strong> manually transfer a JSON backup from one device to another. No cloud syncing in v0.1.</p><p class="small-note"><strong>Review intervals:</strong> a simple SM-2-style scheduler, not FSRS yet. Rating “Again” brings the card back in about 10 minutes.</p><button type="button" class="btn primary" id="help-close">Got it</button>`;
+    const form=$('#modal-form');form.innerHTML=`<div class="row"><h2>How Loop works</h2><button type="button" class="icon-button" id="close-modal">×</button></div><p class="small-note"><strong>Study:</strong> scroll vertically like a feed. Tap the question to reveal an answer, then rate it if you wish. Skipped cards remain due.</p><p class="small-note"><strong>Exercises:</strong> try solving on paper, optionally write in the scratchpad, reveal steps one at a time, then see the final answer.</p><p class="small-note"><strong>Creating cards:</strong> write a question and answer. Enter formulas between dollar signs, such as <code>$F=ma$</code>.</p><p class="small-note"><strong>Import/Export:</strong> manually transfer a JSON backup from one device to another. No cloud syncing in v0.1.</p><p class="small-note"><strong>Review intervals:</strong> a simple SM-2-style scheduler, not FSRS yet. Rating “Again” brings the card back in about 10 minutes.</p><button type="button" class="btn primary" id="help-close">Got it</button>`;
     $('#modal').showModal();$('#close-modal').onclick=$('#help-close').onclick=()=>$('#modal').close();
   }
   $$('[data-view]').forEach(el=>el.addEventListener('click',()=>go(el.dataset.view)));
@@ -333,11 +418,11 @@
   document.addEventListener('keydown',e=>{
     const target=e.target;
     if(target.closest('input,textarea,select,dialog')||activeView!=='study')return;
-    if(e.key===' '){e.preventDefault();$('#reveal-btn')?.click();}
-    else if(e.key==='ArrowUp'){e.preventDefault();next();}
+    if(e.key===' '){e.preventDefault();const slide=$$('.feed-slide',view)[session?.index];$('[data-reveal]',slide)?.click();}
+    else if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();e.key==='ArrowDown'?next():previous();}
     else if(['1','2','3','4'].includes(e.key)){
       const rating=['again','hard','good','easy'][Number(e.key)-1];
-      $(`[data-rating="${rating}"]`)?.click();
+      $(`[data-rating="${rating}"]`, $$(".feed-slide",view)[session?.index])?.click();
     }
   });
   if('serviceWorker' in navigator && ['http:','https:'].includes(location.protocol))navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('Offline caching unavailable',err));
