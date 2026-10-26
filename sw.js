@@ -1,6 +1,6 @@
-const CACHE = 'loop-v1.1';
+const CACHE = 'loop-v1.2';
 const BASE = new URL('./', self.location.href);
-const FILES = ['./','./index.html','./style.css','./app.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const FILES = ['./','./index.html','./style.css','./app.js','./manifest.webmanifest','./icons/icon.svg','./icons/icon.svg'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES.map(f => new URL(f, BASE).href))).then(()=>self.skipWaiting()));
 });
