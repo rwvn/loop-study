@@ -62,3 +62,6 @@ Next step after trying the prototype: free-tier cloud sync, then improved note-t
 ## Version 0.2 — vertical feed
 
 The **Study** tab is now a true full-screen scroll-snapping feed. Swipe/scroll up to the next question or down to revisit any earlier question; there is no mandatory Next button. Tap a question (or the bottom button) to reveal an answer; exercises can reveal their steps sequentially. Rating is optional for navigation, and skipping a card **never** changes its review schedule. **For you** shows due cards; **Explore** scrolls all saved cards. The app still stores your cards only in your browser, with manual JSON import/export for transfer.
+## Built-in complex numbers deck
+
+20 new cards (18 properties and 2 worked exercises) are added once to the **Mathematics → Complex numbers · Properties** deck on the next visit. The upgrade preserves existing locally saved cards and review history. Open **Library → Complex numbers · Properties → Study** to see only these cards. The deck is available offline after the updated app has cached its assets. Existing cards can be edited or deleted normally.
