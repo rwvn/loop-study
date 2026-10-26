@@ -38,15 +38,46 @@
     ]};
   }
 
+  // Install new built-in content once. Keep every existing local card and review.
+  function installComplexPack(state) {
+    const pack = window.LOOP_COMPLEX_PACK;
+    if (!pack || !Array.isArray(pack.cards)) return false;
+    const installed = Array.isArray(state.installedPacks) ? state.installedPacks : [];
+    if (installed.includes(pack.key)) return false;
+    const t = dateNow();
+    if (!state.decks.some(d => d.id === pack.deck.id)) {
+      state.decks.push({...pack.deck, createdAt:t, updatedAt:t});
+    }
+    pack.cards.forEach(item => {
+      const id = pack.deck.id + '__' + item.key;
+      if (state.cards.some(c => c.id === id)) return;
+      state.cards.push({
+        id, deckId:pack.deck.id, type:item.type, front:item.front, back:item.back,
+        steps:Array.isArray(item.steps) ? item.steps : [],
+        createdAt:t, updatedAt:t, dueAt:null, intervalDays:0,
+        ease:2.5, repetitions:0, reviewedAt:null, lastRating:null, reviews:0
+      });
+    });
+    state.installedPacks = [...installed,pack.key];
+    return true;
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const candidate = JSON.parse(raw);
-        if (candidate && candidate.version === 1 && Array.isArray(candidate.cards) && Array.isArray(candidate.decks)) return candidate;
+        if (candidate && candidate.version === 1 && Array.isArray(candidate.cards) && Array.isArray(candidate.decks)) {
+          if (installComplexPack(candidate)) {
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate)); }
+            catch (e) { console.warn('New cards could not be saved to this device', e); }
+          }
+          return candidate;
+        }
       }
     } catch (e) { console.warn('Local storage unavailable', e); }
     const first = demo();
+    installComplexPack(first);
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(first)); } catch (e) { console.warn(e); }
     return first;
   }
