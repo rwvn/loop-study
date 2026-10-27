@@ -73,3 +73,18 @@ The phone opens into a full-height TikTok-style photo feed, without the bottom t
 - **Loop logo** opens the personal studio menu for Library, Create, and Backup; the magnifying-glass icon opens deck filters.
 
 The desktop sidebar is retained for card management. All cards, including the complex-numbers deck, and existing local review progress are preserved by the upgrade. No new account or paid API is needed.
+
+## Mathematics MPSI — comprehensive original study decks
+
+Four built-in decks, with **230 original French-language cards** (including **32 multi-step guided exercises**):
+
+- Logique et raisonnements (46)
+- Ensembles, applications, relations (56)
+- Sommes, produits, binôme (64)
+- Trigonométrie (64)
+
+The subjects and progression are informed by the publicly listed chapter headings of *Maths MPSI–MP2I Tout-en-un* (Dunod); these cards are **original formulations**, not transcriptions of its copyrighted course or solutions. They are independent revision prompts, not a substitute for reading the full course.
+
+The deck pack is in `mpsi-packs.js` and is imported only once with deterministic IDs, preserving existing cards and review progress. Browse via Library and choose a deck to study, or use the filter in the full-screen feed. The feed now incrementally renders 12 posts at a time for smoother use on iPhone.
+
+Source chapter overview: https://www.dunod.com/prepas-concours/maths-mpsi-mp2i-tout-en-un-1
