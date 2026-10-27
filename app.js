@@ -16,6 +16,7 @@
   let filterDeck = 'all';
   let libraryDeck = 'all';
   let session = null;
+  const FEED_BATCH_SIZE = 12;
   let feedMode = 'due'; // 'due' prioritizes spaced repetition; 'all' is a browsable library feed.
   let data = load();
 
@@ -38,20 +39,36 @@
     ]};
   }
 
-  // Install the built-in complex-numbers deck only once; never overwrite user cards.
-  function installComplexPack(state) {
-    const pack=window.LOOP_COMPLEX_PACK;
-    if(!pack||!Array.isArray(pack.cards))return false;
-    const installed=Array.isArray(state.installedPacks)?state.installedPacks:[];
-    if(installed.includes(pack.key))return false;
-    const t=dateNow();
-    if(!state.decks.some(d=>d.id===pack.deck.id))state.decks.push({...pack.deck,createdAt:t,updatedAt:t});
-    pack.cards.forEach(item=>{
-      const id=pack.deck.id+'__'+item.key;
-      if(state.cards.some(c=>c.id===id))return;
-      state.cards.push({id,deckId:pack.deck.id,type:item.type,front:item.front,back:item.back,steps:Array.isArray(item.steps)?item.steps:[],createdAt:t,updatedAt:t,dueAt:null,intervalDays:0,ease:2.5,repetitions:0,reviewedAt:null,lastRating:null,reviews:0});
+  // Add curated learning decks once, without resetting individual study history.
+  // Deck IDs and card IDs remain stable across app releases and backups.
+  function installBuiltInPacks(state) {
+    const packs = [window.LOOP_COMPLEX_PACK, ...(window.LOOP_MPSI_PACKS || [])]
+      .filter(pack => pack && pack.key && pack.deck && Array.isArray(pack.cards));
+    const installed = new Set(Array.isArray(state.installedPacks) ? state.installedPacks : []);
+    let changed = false;
+    const now = dateNow();
+    packs.forEach(pack => {
+      if (installed.has(pack.key)) return;
+      if (!state.decks.some(d => d.id === pack.deck.id)) {
+        state.decks.push({...pack.deck, createdAt:now, updatedAt:now});
+        changed = true;
+      }
+      pack.cards.forEach(item => {
+        const id = pack.deck.id + '__' + item.key;
+        if (state.cards.some(c => c.id === id)) return;
+        state.cards.push({
+          id, deckId:pack.deck.id, type:item.type, front:item.front, back:item.back,
+          steps:Array.isArray(item.steps) ? item.steps : [],
+          createdAt:now, updatedAt:now, dueAt:null, intervalDays:0,
+          ease:2.5, repetitions:0, reviewedAt:null, lastRating:null, reviews:0
+        });
+        changed = true;
+      });
+      installed.add(pack.key);
+      changed = true;
     });
-    state.installedPacks=[...installed,pack.key];return true;
+    state.installedPacks = [...installed];
+    return changed;
   }
 
   function load() {
@@ -60,13 +77,13 @@
       if (raw) {
         const candidate = JSON.parse(raw);
         if (candidate && candidate.version === 1 && Array.isArray(candidate.cards) && Array.isArray(candidate.decks)) {
-          if(installComplexPack(candidate))try{localStorage.setItem(STORAGE_KEY,JSON.stringify(candidate));}catch(e){console.warn(e);}
+          if(installBuiltInPacks(candidate))try{localStorage.setItem(STORAGE_KEY,JSON.stringify(candidate));}catch(e){console.warn(e);}
           return candidate;
         }
       }
     } catch (e) { console.warn('Local storage unavailable', e); }
     const first = demo();
-    installComplexPack(first);
+    installBuiltInPacks(first);
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(first)); } catch (e) { console.warn(e); }
     return first;
   }
@@ -129,7 +146,7 @@
   function newSession() {
     session = {
       ids: (feedMode === 'all' ? data.cards.filter(c => filterDeck === 'all' || c.deckId === filterDeck) : dueCards(filterDeck)).map(c => c.id),
-      index: 0, states: {}
+      index: 0, renderedCount: 0, states: {}
     };
   }
   function feedState(id) {
@@ -262,6 +279,8 @@
     setNav('study');
     if(!session)newSession();
     const hasCards=session.ids.length>0;
+    const visibleIds = session.ids.slice(0, FEED_BATCH_SIZE);
+    session.renderedCount = visibleIds.length;
     const allAvailable=data.cards.some(c=>filterDeck==='all'||c.deckId===filterDeck);
     view.innerHTML=`<div class="feed-root">
       <div class="feed-top-overlay">
@@ -276,7 +295,7 @@
         <div class="feed-popup feed-deck-popup" id="feed-deck-popup" hidden><b>Choose your feed</b><select id="study-deck" aria-label="Choose deck">${deckOptions(filterDeck,true)}</select><p>Filter the posts by a subject or deck.</p></div>
       </div>
       <div class="feed-scroller" id="feed-scroller" aria-label="Vertical study feed" tabindex="0">
-        ${hasCards?session.ids.map((id,i)=>{const card=data.cards.find(c=>c.id===id);return card?`<article class="feed-slide" data-card-id="${escape(card.id)}" aria-label="Post ${i+1} of ${session.ids.length}">${feedCardMarkup(card,i)}</article>`:'';}).join(''):`<section class="feed-slide feed-finish"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>${allAvailable?'All caught up.':'No posts yet.'}</h1><p>${allAvailable?'Nothing due right now. Explore everything in your library.':'Add a card from the studio menu to start your feed.'}</p><button class="feed-reveal" id="empty-action">${allAvailable?'Explore posts':'Create a card'}</button></div></section>`}
+        ${hasCards?visibleIds.map((id,i)=>{const card=data.cards.find(c=>c.id===id);return card?`<article class="feed-slide" data-card-id="${escape(card.id)}" aria-label="Post ${i+1} of ${session.ids.length}">${feedCardMarkup(card,i)}</article>`:'';}).join(''):`<section class="feed-slide feed-finish"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>${allAvailable?'All caught up.':'No posts yet.'}</h1><p>${allAvailable?'Nothing due right now. Explore everything in your library.':'Add a card from the studio menu to start your feed.'}</p><button class="feed-reveal" id="empty-action">${allAvailable?'Explore posts':'Create a card'}</button></div></section>`}
         ${hasCards?`<section class="feed-slide feed-finish"><div class="feed-empty"><span class="feed-sparkle">✦</span><h1>You’re all caught up.</h1><p>Skipped questions stay due. Scrolling doesn’t count as remembering.</p><div class="feed-end-actions"><button id="feed-restart">Replay feed</button><button id="feed-browse">Explore all</button></div></div></section>`:''}
       </div>
     </div>`;
@@ -298,6 +317,26 @@
       $('#feed-browse').onclick=()=>{feedMode='all';newSession();renderStudy();};
     }
     const scroller=$('#feed-scroller');
+    // Just-in-time rendering: loading every post at once on iPhone would
+    // create hundreds of math-rendered pages, which is unnecessarily costly.
+    const appendFeedBatch=()=>{
+      if (!session || session.renderedCount >= session.ids.length) return;
+      const end = Math.min(session.renderedCount + FEED_BATCH_SIZE, session.ids.length);
+      const finish = $('.feed-finish',scroller);
+      for (let i=session.renderedCount; i<end; i++) {
+        const card = data.cards.find(c=>c.id===session.ids[i]);
+        if (!card) continue;
+        const slide = document.createElement('article');
+        slide.className='feed-slide';
+        slide.dataset.cardId=card.id;
+        slide.setAttribute('aria-label',`Post ${i+1} of ${session.ids.length}`);
+        slide.innerHTML=feedCardMarkup(card,i);
+        scroller.insertBefore(slide,finish);
+        bindFeedSlide(slide);
+        renderMath(slide);
+      }
+      session.renderedCount=end;
+    };
     let scrollTick=false;
     scroller.addEventListener('scroll',()=>{
       if(scrollTick)return;
@@ -305,6 +344,7 @@
       requestAnimationFrame(()=>{
         const posts=$$('.feed-slide',scroller);
         if(posts.length)session.index=Math.min(session.ids.length,Math.max(0,Math.round(scroller.scrollTop/(posts[0].offsetHeight||scroller.clientHeight))));
+        if(session && session.index >= session.renderedCount-4) appendFeedBatch();
         updateFeedChrome();scrollTick=false;
       });
     },{passive:true});
